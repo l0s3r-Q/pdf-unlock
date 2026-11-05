@@ -1,0 +1,36 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "pdf-unlock"
+version = "1.0.0"
+description = "Remove owner-password (permission) restrictions from PDFs. Does not crack open passwords."
+readme = "README.md"
+requires-python = ">=3.9"
+license = { text = "MIT" }
+authors = [{ name = "pdf-unlock contributors" }]
+keywords = ["pdf", "permissions", "unlock", "decrypt", "owner-password", "acrobat"]
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+    "Topic :: Utilities",
+    "Environment :: Console",
+]
+dependencies = ["pypdf>=4.0"]
+
+[project.optional-dependencies]
+test = ["pytest>=7", "pymupdf>=1.24"]
+
+[project.scripts]
+pdf-unlock = "pdf_unlock:main"
+
+[project.urls]
+Homepage = "https://github.com/l0s3r-Q/pdf-unlock"
+
+[tool.setuptools]
+py-modules = ["pdf_unlock"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
