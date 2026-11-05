@@ -22,9 +22,15 @@ from typing import Iterable, NamedTuple
 
 try:
     from pypdf import PasswordType, PdfReader, PdfWriter
+    from pypdf.errors import DependencyError
     from pypdf.generic import NameObject
 except ImportError:  # pragma: no cover
-    sys.exit("error: pypdf is not installed.  Try:  pip install pypdf")
+    sys.exit("error: pypdf is not installed.  Try:  pip install \"pypdf[crypto]\"")
+
+MISSING_CRYPTO_HINT = (
+    "this file uses AES encryption, which needs the 'cryptography' package. "
+    'Fix with:  pip install "pypdf[crypto]"  or  pip install cryptography'
+)
 
 __version__ = "1.0.0"
 
@@ -143,6 +149,9 @@ def unlock_pdf(
 
     try:
         reader = PdfReader(str(source))
+    except DependencyError:
+        # pypdf also raises this while *parsing* an AES file, before decrypt().
+        return UnlockResult(source, None, "missing_dependency", MISSING_CRYPTO_HINT)
     except Exception as exc:  # noqa: BLE001 - surface any parse failure to the user
         return UnlockResult(source, None, "error", f"cannot read file: {exc}")
 
@@ -151,7 +160,13 @@ def unlock_pdf(
             source, None, "not_encrypted", "file is not encrypted, nothing to do"
         )
 
-    attempt = reader.decrypt(password)
+    try:
+        attempt = reader.decrypt(password)
+    except DependencyError:
+        # pypdf raises this when the file uses AES but no crypto backend is
+        # installed. Give an actionable message instead of a stack trace.
+        return UnlockResult(source, None, "missing_dependency", MISSING_CRYPTO_HINT)
+
     if attempt == PasswordType.NOT_DECRYPTED:
         # A real user password is required to open the file. We deliberately
         # stop here: this tool removes permission flags, it does not crack.
@@ -194,6 +209,10 @@ def unlock_pdf(
         destination.parent.mkdir(parents=True, exist_ok=True)
         with destination.open("wb") as handle:
             shutil.copyfileobj(buffer, handle)
+    except DependencyError:
+        return UnlockResult(
+            source, None, "missing_dependency", MISSING_CRYPTO_HINT, permissions_before
+        )
     except Exception as exc:  # noqa: BLE001
         return UnlockResult(
             source, None, "error", f"failed to write output: {exc}", permissions_before
@@ -286,7 +305,9 @@ def main(argv: list[str] | None = None) -> int:
         ]
         print(json.dumps(payload, indent=2, ensure_ascii=False))
 
-    failures = sum(1 for r in results if r.status in {"error", "needs_password"})
+    failures = sum(
+        1 for r in results if r.status in {"error", "needs_password", "missing_dependency"}
+    )
     return 1 if failures else 0
 
 
@@ -308,6 +329,9 @@ def _report(result: UnlockResult, *, dry_run: bool) -> None:
         print(f"  skip  {name}: {result.message}")
     elif result.status == "needs_password":
         print(f"  STOP  {name}")
+        print(f"        {result.message}")
+    elif result.status == "missing_dependency":
+        print(f"  DEPS  {name}")
         print(f"        {result.message}")
     else:
         print(f"  error {name}: {result.message}")

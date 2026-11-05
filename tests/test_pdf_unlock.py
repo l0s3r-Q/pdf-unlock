@@ -264,6 +264,95 @@ def test_corrupt_file_reports_error(tmp_path):
     assert result.status == "error"
 
 
+def test_missing_crypto_backend_is_reported_clearly(tmp_path, monkeypatch):
+    """AES needs the `cryptography` package.
+
+    Without it pypdf raises DependencyError. That must surface as a readable
+    hint, not a traceback — an earlier release crashed here for every user who
+    followed the install instructions.
+    """
+    from pypdf.errors import DependencyError
+
+    import pdf_unlock as mod
+
+    source = make_pdf(tmp_path / "locked.pdf", algorithm="AES-256")
+
+    real_reader = mod.PdfReader
+
+    class FakeReader:
+        def __init__(self, *args, **kwargs):
+            self._inner = real_reader(*args, **kwargs)
+            self.is_encrypted = self._inner.is_encrypted
+
+        def decrypt(self, password):
+            raise DependencyError("cryptography>=3.1 is required for AES algorithm")
+
+    monkeypatch.setattr(mod, "PdfReader", FakeReader)
+
+    result = unlock_pdf(source, tmp_path / "out.pdf")
+
+    assert result.status == "missing_dependency"
+    assert "cryptography" in result.message
+    assert "pip install" in result.message
+    assert not (tmp_path / "out.pdf").exists()
+
+
+def test_missing_crypto_during_parse_is_reported(tmp_path, monkeypatch):
+    """pypdf can raise DependencyError while *parsing*, not just on decrypt().
+
+    That path must also produce the actionable hint; previously it fell through
+    to a generic "cannot read file" message with exit code 0.
+    """
+    from pypdf.errors import DependencyError
+
+    import pdf_unlock as mod
+
+    def boom(*args, **kwargs):
+        raise DependencyError("cryptography>=3.1 is required for AES algorithm")
+
+    monkeypatch.setattr(mod, "PdfReader", boom)
+
+    source = tmp_path / "x.pdf"
+    source.write_bytes(b"%PDF-1.7 irrelevant")
+    result = unlock_pdf(source, tmp_path / "out.pdf")
+
+    assert result.status == "missing_dependency"
+    assert "pip install" in result.message
+
+
+def test_missing_crypto_failure_exits_nonzero(tmp_path):
+    """A dependency failure must not look like success to a script."""
+    import pdf_unlock as mod
+
+    real = mod.unlock_pdf
+    monkey = lambda *a, **k: mod.UnlockResult(
+        a[0], None, "missing_dependency", "no crypto"
+    )
+    mod.unlock_pdf = monkey
+    try:
+        code = mod.main([str(tmp_path / "a.pdf"), "--dry-run"])
+    finally:
+        mod.unlock_pdf = real
+    assert code == 1
+
+
+def test_crypto_backend_is_importable():
+    """Guard the declared dependency itself, not just the error path."""
+    import cryptography  # noqa: F401
+
+    from pypdf import PdfReader as R
+    from pypdf import PdfWriter as W
+
+    buffer = io.BytesIO()
+    writer = W()
+    writer.add_blank_page(width=100, height=100)
+    writer.encrypt(user_password="", owner_password="o", algorithm="AES-256")
+    writer.write(buffer)
+    buffer.seek(0)
+
+    assert R(buffer).decrypt("") != 0
+
+
 # --------------------------------------------------------------------------- #
 # CLI
 # --------------------------------------------------------------------------- #

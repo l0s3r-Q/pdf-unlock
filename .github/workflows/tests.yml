@@ -13,7 +13,8 @@ jobs:
       fail-fast: false
       matrix:
         os: [ubuntu-latest, windows-latest, macos-latest]
-        python-version: ["3.9", "3.10", "3.11", "3.12", "3.13"]
+        # 3.9 dropped: ubuntu-latest (26.04) no longer ships a 3.9 build.
+        python-version: ["3.10", "3.11", "3.12", "3.13"]
 
     steps:
       - uses: actions/checkout@v4
@@ -21,17 +22,61 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: ${{ matrix.python-version }}
+          allow-prereleases: false
 
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install pypdf pytest pymupdf
+          # cryptography is a real runtime dependency, not just a test extra:
+          # AES-256 files cannot be decrypted without it.
+          pip install "pypdf>=4.0" "cryptography>=3.1" pytest pymupdf
+
+      - name: Verify crypto backend is present
+        run: python -c "import cryptography, pypdf; print('pypdf', pypdf.__version__, '| cryptography', cryptography.__version__)"
 
       - name: Run tests
         run: python -m pytest tests/ -v
 
       - name: Smoke-test the CLI
-        if: runner.os == 'Linux'
+        shell: bash
         run: |
           python pdf_unlock.py --help
           python pdf_unlock.py --version
+
+  install-check:
+    # Prove the declared dependencies are enough on their own — the bug this
+    # workflow once shipped was exactly a missing crypto dependency.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install the package the way a user would
+        run: pip install .
+
+      - name: Decrypt an AES-256 fixture using only declared deps
+        run: |
+          python - <<'EOF'
+          import io, subprocess, sys
+          from pypdf import PdfWriter
+
+          # Build an AES-256, owner-password-only file.
+          w = PdfWriter()
+          w.add_blank_page(width=200, height=200)
+          w.encrypt(user_password="", owner_password="owner", algorithm="AES-256")
+          w.write("/tmp/aes256.pdf")
+
+          out = subprocess.run(
+              ["pdf-unlock", "/tmp/aes256.pdf", "--outdir", "/tmp/out", "--json"],
+              capture_output=True, text=True,
+          )
+          print(out.stdout, out.stderr)
+          if out.returncode != 0:
+              sys.exit("CLI failed: missing dependency or bad output")
+
+          from pypdf import PdfReader
+          assert PdfReader("/tmp/out/aes256.pdf").is_encrypted is False
+          print("PASS: installed package decrypts AES-256 with declared deps only")
+          EOF

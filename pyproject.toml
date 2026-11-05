@@ -7,7 +7,7 @@ name = "pdf-unlock"
 version = "1.0.0"
 description = "Remove owner-password (permission) restrictions from PDFs. Does not crack open passwords."
 readme = "README.md"
-requires-python = ">=3.9"
+requires-python = ">=3.10"
 license = { text = "MIT" }
 authors = [{ name = "pdf-unlock contributors" }]
 keywords = ["pdf", "permissions", "unlock", "decrypt", "owner-password", "acrobat"]
@@ -18,7 +18,12 @@ classifiers = [
     "Topic :: Utilities",
     "Environment :: Console",
 ]
-dependencies = ["pypdf>=4.0"]
+dependencies = [
+    "pypdf>=4.0",
+    # AES-256 is what Acrobat/WPS emit by default; without this backend pypdf
+    # refuses to decrypt those files. Required, not optional.
+    "cryptography>=3.1",
+]
 
 [project.optional-dependencies]
 test = ["pytest>=7", "pymupdf>=1.24"]

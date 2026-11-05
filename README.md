@@ -38,16 +38,23 @@ does not attempt it.
 ## Install
 
 ```bash
-pip install pypdf
+pip install "pypdf[crypto]"
 ```
 
-That is the only dependency. `cryptography` is pulled in automatically for AES-256 files.
+Two packages, both required:
 
-Then grab the single file — it is self-contained, no package install needed:
+- **pypdf** — parsing and rebuilding the document
+- **cryptography** — decrypting AES. Without it, AES-128/256 files fail, and AES-256
+  is what Acrobat and WPS emit by default, so this is **not** optional.
+
+Or just grab the single file — it has no imports beyond those two packages:
 
 ```bash
 curl -O https://raw.githubusercontent.com/l0s3r-Q/pdf-unlock/main/pdf_unlock.py
 ```
+
+If `cryptography` is missing, the tool says so and prints the install command instead
+of crashing with a traceback.
 
 ## Usage
 
@@ -129,7 +136,7 @@ produce by default), plus corrupt files, plain unencrypted PDFs, and files with 
 open passwords.
 
 ```bash
-pip install pypdf pytest
+pip install "pypdf[crypto]" pytest pymupdf
 python -m pytest tests/ -v
 ```
 
@@ -167,7 +174,7 @@ tool's.
 ### 安装与使用
 
 ```bash
-pip install pypdf
+pip install "pypdf[crypto]"
 
 # 单文件：在同目录生成 xxx_unlocked.pdf
 python pdf_unlock.py 真题.pdf
